@@ -66,13 +66,7 @@
       <main class="workspace">
         <section class="library-panel" aria-label="音乐文件列表">
           <div class="page-heading">
-            <div>
-              <h1>音乐文件</h1>
-              <p>整理每一首歌的信息，让音乐各就各位。</p>
-            </div>
-            <div class="record-illustration" aria-hidden="true">
-              <span></span>
-            </div>
+            <h1>音乐文件</h1>
           </div>
           <div class="list-toolbar">
             <label class="search-box"
@@ -179,25 +173,25 @@
                 </button>
               </div>
               <div class="form-grid">
-                <label class="field full"
+                <label class="field"
                   >歌曲名称<input
                     data-field="title"
                     autocomplete="off"
                     placeholder="输入歌曲名称"
                 /></label>
-                <label class="field full"
+                <label class="field"
                   >艺术家<input
                     data-field="artist"
                     autocomplete="off"
                     placeholder="输入艺术家"
                 /></label>
-                <label class="field full"
+                <label class="field"
                   >专辑<input
                     data-field="album"
                     autocomplete="off"
                     placeholder="输入专辑名称"
                 /></label>
-                <label class="field full"
+                <label class="field"
                   >专辑艺术家<input
                     data-field="albumArtist"
                     autocomplete="off"
@@ -227,13 +221,13 @@
                     autocomplete="off"
                     placeholder="例如 1/2"
                 /></label>
-                <label class="field full"
+                <label class="field"
                   >作曲<input
                     data-field="composer"
                     autocomplete="off"
                     placeholder="输入作曲者"
                 /></label>
-                <label class="field full"
+                <label class="field"
                   >备注<input
                     data-field="comment"
                     autocomplete="off"
@@ -276,7 +270,7 @@
       <div class="dialog-header">
         <div>
           <h2>在线匹配</h2>
-          <p>搜索并选择正确的歌曲，结果会先填入编辑区。</p>
+          <p>搜索词会发送至网易云音乐、MusicBrainz、LRCLIB 和 TheSubtitleDB。长音频还会按影片名检索字幕。选用结果后请检查再保存。</p>
         </div>
         <button
           class="close-button"
@@ -288,19 +282,21 @@
       </div>
       <form id="match-form" class="match-form">
         <label class="field"
-          >歌曲名称<input
+          >歌曲、专辑或影片名称<input
             id="match-title"
-            required
-            placeholder="输入歌曲名称" /></label
+            maxlength="300"
+            placeholder="输入名称，可留空；长音频请填影片名" /></label
         ><label class="field"
           >艺术家<input
             id="match-artist"
-            placeholder="输入艺术家，可选" /></label
+            maxlength="300"
+            placeholder="输入艺术家，可留空" /></label
         ><button class="button primary" type="submit">搜索</button>
       </form>
       <div class="dialog-caption" id="match-status">
-        搜索 MusicBrainz 和 LRCLIB
+        请填写名称或艺术家，然后点击搜索。
       </div>
+      <p class="match-hint" id="match-hint" hidden></p>
       <div class="match-results" id="match-results"></div>
     </dialog>
 

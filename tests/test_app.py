@@ -2,9 +2,11 @@ import base64
 import io
 import tempfile
 import unittest
+import wave
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import unquote
 
 from mutagen.id3 import APIC, ID3, TIT2, TPE1, TXXX, USLT
 
@@ -105,9 +107,52 @@ class MusicHelpTest(unittest.TestCase):
         self.assertFalse(result["errors"])
         response = self.client.get("/api/download", query_string=[("id", track["id"]) for track in tracks])
         with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
-            self.assertEqual(archive.namelist(), ["song.mp3", "song (2).mp3"])
-            self.assertEqual(str(ID3(io.BytesIO(archive.read("song.mp3")))["TIT2"]), "批量歌曲")
+            self.assertEqual(archive.namelist(), ["批量歌曲.mp3", "批量歌曲 (2).mp3"])
+            self.assertEqual(str(ID3(io.BytesIO(archive.read("批量歌曲.mp3")))["TIT2"]), "批量歌曲")
         response.close()
+
+    def test_saved_tags_update_upload_download_name_and_extension(self):
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as output:
+            output.setparams((1, 2, 44100, 0, "NONE", "not compressed"))
+            output.writeframes(bytes(8820))
+        buffer.seek(0)
+        uploaded = self.client.post("/api/files", data={"file": (buffer, "fake.mp3")}, headers=self.headers).get_json()["track"]
+        self.assertTrue(uploaded["extensionMismatch"])
+        result = self.client.post(
+            "/api/tags",
+            json={"files": [{"id": uploaded["id"], "version": uploaded["version"]}], "changes": {"title": "新歌名", "artist": "艺术家", "lyrics": "新歌词"}},
+            headers=self.headers,
+        ).get_json()
+        self.assertFalse(result["errors"])
+        self.assertEqual(result["tracks"][0]["name"], "艺术家 - 新歌名.wav")
+        response = self.client.get("/api/download", query_string=[("id", uploaded["id"])])
+        self.assertIn("艺术家 - 新歌名.wav", unquote(response.headers["Content-Disposition"]))
+        path = self.root / "downloaded.wav"
+        path.write_bytes(response.data)
+        response.close()
+        downloaded = read_track(path, path.name, "upload")
+        self.assertEqual((downloaded["title"], downloaded["artist"], downloaded["lyrics"]), ("新歌名", "艺术家", "新歌词"))
+
+    def test_explicit_rename_is_not_overwritten_by_later_save(self):
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as output:
+            output.setparams((1, 2, 44100, 0, "NONE", "not compressed"))
+            output.writeframes(bytes(8820))
+        buffer.seek(0)
+        uploaded = self.client.post("/api/files", data={"file": (buffer, "fake.mp3")}, headers=self.headers).get_json()["track"]
+        renamed = self.client.post(
+            "/api/rename",
+            json={"files": [{"id": uploaded["id"], "version": uploaded["version"]}], "template": "%filename% - 自定义", "useDetectedExtension": True},
+            headers=self.headers,
+        ).get_json()
+        self.assertEqual(renamed["tracks"][0]["name"], "fake - 自定义.wav")
+        result = self.client.post(
+            "/api/tags",
+            json={"files": [{"id": uploaded["id"], "version": renamed["tracks"][0]["version"]}], "changes": {"title": "新歌名"}},
+            headers=self.headers,
+        ).get_json()
+        self.assertEqual(result["tracks"][0]["name"], "fake - 自定义.wav")
 
     def test_online_response_with_missing_optional_fields(self):
         with patch.object(online, "fetch", return_value={"recordings": [{"title": "Song", "length": None, "releases": [{"date": None}]}]}):

@@ -32,6 +32,7 @@ class Entry:
     name: str
     source: str
     relative_path: str = ""
+    renamed: bool = False
 
 
 def valid_entry(file_id):
@@ -56,6 +57,18 @@ def safe_name(name):
     name = str(name).replace("\\", "/").split("/")[-1]
     name = re.sub(r'[\x00-\x1f<>:"/\\|?*]', "_", name).strip(" .")
     return name or "untitled"
+
+
+def tagged_upload_name(entry, data):
+    base = " - ".join(part for part in (data.get("artist"), data.get("title")) if part) or Path(entry.name).stem
+    suffix = data["detectedExtension"] if data["extensionMismatch"] else Path(entry.name).suffix
+    return safe_name(f"{base}{suffix}")
+
+
+def download_name_for(file_id, entry):
+    if entry.source == "upload" and not entry.renamed:
+        return tagged_upload_name(entry, track_data(file_id, entry))
+    return entry.name
 
 
 def renamed_name(template, data, use_detected_extension=False):
@@ -204,7 +217,14 @@ def save_tags():
             try:
                 entry = valid_entry(file_id)
                 update_tags(entry.path, item.get("version"), changes, "cover" in payload, payload.get("cover"), operation_id)
-                saved.append(track_data(file_id, entry))
+                data = track_data(file_id, entry)
+                if entry.source == "upload" and not entry.renamed:
+                    name = tagged_upload_name(entry, data)
+                    if name != entry.name:
+                        logger.info("tags.upload_name_updated operation_id=%s file_id=%s from=%s to=%s", operation_id, file_id, entry.name, name)
+                        entry.name = name
+                        data = track_data(file_id, entry)
+                saved.append(data)
             except Exception as exc:
                 logger.exception("tags.item_failed operation_id=%s file_id=%s", operation_id, file_id)
                 errors.append({"id": file_id, "error": getattr(exc, "description", str(exc))})
@@ -256,6 +276,7 @@ def rename():
                     entry.path = target
                     entry.relative_path = str(target.relative_to(library_root))
                 entry.name = name
+                entry.renamed = True
                 renamed.append(track_data(file_id, entry))
                 logger.info("rename.item_completed operation_id=%s file_id=%s name=%s elapsed_ms=%s", operation_id, file_id, name, round((time.monotonic() - item_started) * 1000))
             except Exception as exc:
@@ -294,18 +315,19 @@ def download():
     with lock:
         files = [valid_entry(file_id) for file_id in file_ids]
         if len(files) == 1:
-            logger.info("download.file_ready operation_id=%s file_id=%s bytes=%s elapsed_ms=%s", operation_id, file_ids[0], files[0].path.stat().st_size, round((time.monotonic() - started) * 1000))
-            return send_file(files[0].path, as_attachment=True, download_name=files[0].name, conditional=True)
+            name = download_name_for(file_ids[0], files[0])
+            logger.info("download.file_ready operation_id=%s file_id=%s name=%s bytes=%s elapsed_ms=%s", operation_id, file_ids[0], name, files[0].path.stat().st_size, round((time.monotonic() - started) * 1000))
+            return send_file(files[0].path, as_attachment=True, download_name=name, conditional=True)
         archive = tempfile.TemporaryFile()
         try:
             with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as output:
                 names = set()
                 for file_id, entry in zip(file_ids, files):
                     item_started = time.monotonic()
-                    name = entry.name
+                    name = download_name_for(file_id, entry)
                     number = 2
                     while name.casefold() in names:
-                        name = f"{Path(entry.name).stem} ({number}){Path(entry.name).suffix}"
+                        name = f"{Path(name).stem} ({number}){Path(name).suffix}"
                         number += 1
                     names.add(name.casefold())
                     output.write(entry.path, arcname=name)
@@ -324,9 +346,14 @@ def download():
 @app.get("/api/online/search")
 def online_search():
     title, artist = request.args.get("title", "").strip(), request.args.get("artist", "").strip()
-    if not title or len(title) > 300 or len(artist) > 300:
-        abort(400, "请填写不超过 300 个字符的歌曲名称。")
-    return jsonify(online.search(title, artist, uuid.uuid4().hex))
+    if not (title or artist) or len(title) > 300 or len(artist) > 300:
+        abort(400, "请填写歌曲、专辑名称或艺术家，每项不超过 300 个字符。")
+    source = request.args.get("source")
+    if source and source not in {"netease_song", "netease_album", "musicbrainz", "musicbrainz_release", "lrclib", "subtitle"}:
+        abort(400, "搜索来源无效。")
+    request_id = request.args.get("requestId", "")
+    operation_id = request_id if re.fullmatch(r"[a-zA-Z0-9-]{1,64}", request_id) else uuid.uuid4().hex
+    return jsonify(online.search(title, artist, operation_id, source))
 
 
 @app.post("/api/online/details")
@@ -334,10 +361,15 @@ def online_details():
     candidate = request.get_json(silent=True)
     if not isinstance(candidate, dict):
         abort(400, "匹配结果无效。")
-    for key in ("title", "artist", "album", "releaseId"):
+    for key in ("title", "artist", "album", "releaseId", "releaseGroupId", "kind", "language", "format", "encoding", "releaseName"):
         if key in candidate and (not isinstance(candidate[key], str) or len(candidate[key]) > 300):
             abort(400, "匹配结果无效。")
-    candidate = {key: candidate[key] for key in ("title", "artist", "album", "releaseId", "duration", "lyricsId") if key in candidate}
+    for key in ("neteaseId", "neteaseAlbumId", "subtitleId"):
+        if key in candidate and (not isinstance(candidate[key], str) or not re.fullmatch(r"[0-9]{1,20}", candidate[key])):
+            abort(400, "匹配结果无效。")
+    if "skipLyrics" in candidate and not isinstance(candidate["skipLyrics"], bool):
+        abort(400, "匹配结果无效。")
+    candidate = {key: candidate[key] for key in ("title", "artist", "album", "releaseId", "releaseGroupId", "kind", "neteaseId", "neteaseAlbumId", "subtitleId", "language", "format", "encoding", "releaseName", "duration", "lyricsId", "skipLyrics") if key in candidate}
     return jsonify(online.details(candidate, uuid.uuid4().hex))
 
 

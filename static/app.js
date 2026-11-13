@@ -2,6 +2,21 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const token = $('meta[name="csrf-token"]').content;
 const audioExtensions = new Set($('meta[name="audio-extensions"]').content.split(","));
+const LONG_AUDIO_SECONDS = 1800;
+const songSources = ["netease_song", "netease_album", "musicbrainz", "musicbrainz_release", "lrclib"];
+const longAudioSources = ["subtitle", ...songSources];
+const languageNames = {
+  en: "英语",
+  zh: "中文",
+  zt: "中文（繁体）",
+  ja: "日语",
+  ko: "韩语",
+  es: "西班牙语",
+  fr: "法语",
+  de: "德语",
+  pt: "葡萄牙语",
+  ru: "俄语",
+};
 const fields = $$("[data-field]");
 const state = {
   tracks: [],
@@ -15,6 +30,7 @@ const state = {
 };
 let toastTimer;
 let matchRequestId = 0;
+let matchApplying = false;
 
 function escapeHtml(value) {
   return String(value ?? "").replace(
@@ -502,53 +518,101 @@ $("#match-button").onclick = () => {
   }
   $("#match-title").value = title;
   $("#match-artist").value = artist;
-  $("#match-status").textContent = "搜索 MusicBrainz 和 LRCLIB";
+  $("#match-status").textContent = "请填写名称或艺术家，然后点击搜索。";
   $("#match-results").innerHTML = "";
+  const longTrack = track.duration >= LONG_AUDIO_SECONDS;
+  $("#match-hint").hidden = !longTrack;
+  $("#match-hint").textContent =
+    "这是一段较长的音频，可能包含多首歌曲或完整演出。字幕检索按影片名进行（例如 Taylor Swift The Eras Tour），结果会带上时间轴；歌曲和专辑结果仍可选用，但不会自动填入单曲歌词。";
   $("#match-dialog").showModal();
-  $("#match-form").requestSubmit();
 };
 $("#match-form").onsubmit = async (event) => {
   event.preventDefault();
   const title = $("#match-title").value.trim();
   const artist = $("#match-artist").value.trim();
-  if (!title) return;
+  if (!title && !artist) {
+    $("#match-status").textContent = "请填写名称或艺术家。";
+    return;
+  }
   const requestId = ++matchRequestId;
-  $("#match-status").textContent = "正在搜索，请稍候…";
+  matchApplying = false;
   $("#match-results").innerHTML = "";
-  const query = new URLSearchParams({ title, artist });
-  try {
-    const result = await api(`/api/online/search?${query}`);
-    if (requestId !== matchRequestId || !$("#match-dialog").open) return;
-    state.candidates = result.candidates;
-    $("#match-status").textContent =
-      `${result.candidates.length ? `找到 ${result.candidates.length} 个候选结果` : "未找到候选结果"}${result.warnings.length ? ` · ${result.warnings.join("、")}` : ""}`;
-    $("#match-results").innerHTML = result.candidates
+  const sourceNames = {
+    netease_song: "网易云歌曲",
+    netease_album: "网易云专辑",
+    musicbrainz: "MusicBrainz 歌曲",
+    musicbrainz_release: "MusicBrainz 专辑",
+    lrclib: "LRCLIB",
+    subtitle: "TheSubtitleDB 字幕",
+  };
+  const sourceResults = {};
+  const operationId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const trackDuration = selectedTracks()[0]?.duration || 0;
+  const sourceOrder = trackDuration >= LONG_AUDIO_SECONDS ? longAudioSources : songSources;
+  const current = () => requestId === matchRequestId && $("#match-dialog").open;
+  function renderMatches() {
+    if (!current() || matchApplying) return;
+    state.candidates = sourceOrder.flatMap((key) => sourceResults[key]?.candidates || []);
+    const pending = sourceOrder.some((key) => !sourceResults[key]);
+    const statuses = sourceOrder.map((key) => {
+      const result = sourceResults[key];
+      return `${sourceNames[key]} ${!result ? "搜索中" : result.warnings.length ? "连接失败" : `${result.candidates.length} 条`}`;
+    });
+    $("#match-status").textContent = `${state.candidates.length ? `找到 ${state.candidates.length} 个候选结果` : pending ? "正在搜索" : "未找到候选结果，可尝试修改名称或只填写艺术家"} · ${statuses.join(" / ")}`;
+    $("#match-results").innerHTML = state.candidates
       .map(
-        (candidate, index) =>
-          `<div class="match-result"><div><strong>${escapeHtml(candidate.title || "未知歌曲")}</strong><span>${escapeHtml(candidate.artist || "未知艺术家")} · ${escapeHtml(candidate.album || "未知专辑")} · ${duration(candidate.duration)}<br>${escapeHtml(candidate.source)}${candidate.year ? ` · ${escapeHtml(candidate.year)}` : ""}</span></div><button class="button subtle" data-candidate="${index}">选用</button></div>`,
+        (candidate, index) => {
+          const difference = candidate.duration > 0 && trackDuration > 0 ? Math.abs(trackDuration - candidate.duration) : 0;
+          const durationDiffers = difference > Math.max(90, trackDuration * 0.15);
+          const meta =
+            candidate.kind === "subtitle"
+              ? [
+                  candidate.year,
+                  languageNames[candidate.language] || candidate.language,
+                  candidate.duration ? duration(candidate.duration) : "",
+                  candidate.cues ? `${candidate.cues} 条字幕` : "",
+                  difference <= 2 && candidate.duration > 0 && trackDuration > 0 ? "与音频时长一致" : durationDiffers ? "时长相差较大" : "",
+                  candidate.source,
+                ]
+                  .filter(Boolean)
+                  .map((part) => escapeHtml(part))
+                  .join(" · ")
+              : `${escapeHtml(candidate.artist || "未知艺术家")} · ${escapeHtml(candidate.album || "未知专辑")}${candidate.duration ? ` · ${duration(candidate.duration)}` : ""}${durationDiffers ? " · 时长相差较大" : ""}<br>${escapeHtml(candidate.source)}${candidate.year ? ` · ${escapeHtml(candidate.year)}` : ""}`;
+          return `<div class="match-result"><div><strong>${escapeHtml(candidate.title || "未知名称")}</strong><span>${meta}</span></div><button class="button subtle" data-candidate="${index}">选用</button></div>`;
+        },
       )
       .join("");
     $$("[data-candidate]").forEach((button) =>
       button.addEventListener("click", () =>
-        applyCandidate(state.candidates[Number(button.dataset.candidate)]),
+        applyCandidate(state.candidates[Number(button.dataset.candidate)], renderMatches),
       ),
     );
-  } catch (error) {
-    if (requestId === matchRequestId && $("#match-dialog").open)
-      $("#match-status").textContent = `搜索失败：${error.message}`;
   }
+  renderMatches();
+  await Promise.all(sourceOrder.map(async (source) => {
+    const query = new URLSearchParams({ title, artist, source, requestId: operationId });
+    try {
+      sourceResults[source] = await api(`/api/online/search?${query}`);
+    } catch {
+      sourceResults[source] = { candidates: [], warnings: ["请求失败"] };
+    }
+    renderMatches();
+  }));
 };
-async function applyCandidate(candidate) {
+async function applyCandidate(candidate, renderMatches) {
   const selectedId = selectedTracks()[0]?.id;
+  const subtitle = candidate.kind === "subtitle";
+  const skipLyrics = !subtitle && (selectedTracks()[0]?.duration || 0) >= LONG_AUDIO_SECONDS;
   const requestId = matchRequestId;
-  $("#match-status").textContent = "正在获取封面和歌词…";
+  matchApplying = true;
+  $("#match-status").textContent = subtitle ? "正在下载字幕并转换为歌词…" : "正在获取封面和歌词…";
   $$("#match-results button").forEach((button) => {
     button.disabled = true;
   });
   try {
     const result = await api(
       "/api/online/details",
-      jsonRequest("POST", candidate),
+      jsonRequest("POST", { ...candidate, skipLyrics }),
     );
     if (
       !$("#match-dialog").open ||
@@ -573,24 +637,27 @@ async function applyCandidate(candidate) {
     }
     updateStatus();
     $("#match-dialog").close();
-    const missing = [!result.cover && "封面", !result.lyrics && "歌词"].filter(
-      Boolean,
-    );
+    const missing = [
+      !subtitle && !result.cover && "封面",
+      !skipLyrics && candidate.kind !== "release" && !result.lyrics && "歌词",
+    ].filter(Boolean);
     notify(
-      `已填入匹配结果，请检查后保存${missing.length ? `。未获取到${missing.join("和")}` : ""}`,
+      subtitle
+        ? `已用字幕填入歌词，时间轴来自影片字幕，请检查后再保存${missing.length ? `。未获取到${missing.join("和")}` : ""}${result.warnings.length ? `。${result.warnings.join("、")}` : ""}`
+        : `已填入匹配结果，请检查后保存${missing.length ? `。未获取到${missing.join("和")}` : ""}${skipLyrics ? "。长音频未自动填入单曲歌词" : ""}${result.warnings.length ? `。${result.warnings.join("、")}` : ""}`,
       7000,
     );
   } catch (error) {
     if (requestId === matchRequestId && $("#match-dialog").open) {
+      matchApplying = false;
+      renderMatches();
       $("#match-status").textContent = `获取失败：${error.message}`;
-      $$("#match-results button").forEach((button) => {
-        button.disabled = false;
-      });
     }
   }
 }
 $("#match-dialog").addEventListener("close", () => {
   matchRequestId++;
+  matchApplying = false;
 });
 
 function updateRenamePreview() {
