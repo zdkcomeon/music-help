@@ -1,0 +1,1 @@
+"""Music Help application."""

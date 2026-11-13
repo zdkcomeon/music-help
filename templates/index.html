@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content="{{ csrf_token }}" />
+    <title>Music Help - 音乐标签工作台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Music Help 首页"
+        ><span class="brand-mark">♫</span
+        ><span>Music Help<small>音乐标签工作台</small></span></a
+      >
+      <div class="top-actions">
+        <button class="button subtle" id="add-folder">添加文件夹</button>
+        <button class="button primary" id="add-files">
+          <span class="plus">＋</span> 添加 MP3
+        </button>
+        <input
+          id="file-input"
+          type="file"
+          accept=".mp3,audio/mpeg"
+          multiple
+          hidden
+        />
+        <input
+          id="folder-input"
+          type="file"
+          accept=".mp3,audio/mpeg"
+          webkitdirectory
+          multiple
+          hidden
+        />
+      </div>
+    </header>
+
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="side-label">音乐库</div>
+        <nav aria-label="文件来源">
+          <button class="nav-item active" data-source="all">
+            <span class="nav-icon">▦</span> 全部歌曲
+            <span class="nav-count" id="count-all">0</span>
+          </button>
+          <button class="nav-item" data-source="library">
+            <span class="nav-icon">▱</span> 服务器目录
+            <span class="nav-count" id="count-library">0</span>
+          </button>
+          <button class="nav-item" data-source="upload">
+            <span class="nav-icon">⇧</span> 已上传文件
+            <span class="nav-count" id="count-upload">0</span>
+          </button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="connection">
+            <span class="connection-dot"></span
+            ><span id="library-status">正在检查音乐目录</span>
+          </div>
+          <button class="text-button" id="refresh-library">
+            刷新服务器目录 <span>↻</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section class="library-panel" aria-label="音乐文件列表">
+          <div class="page-heading">
+            <div>
+              <h1>音乐文件</h1>
+              <p>整理每一首歌的信息，让音乐各就各位。</p>
+            </div>
+            <div class="record-illustration" aria-hidden="true">
+              <span></span>
+            </div>
+          </div>
+          <div class="list-toolbar">
+            <label class="search-box"
+              ><span aria-hidden="true">⌕</span
+              ><input
+                id="filter"
+                type="search"
+                placeholder="搜索歌名、艺术家或文件名"
+                aria-label="搜索音乐文件"
+              /><kbd>/</kbd></label
+            >
+            <button
+              class="button icon-button"
+              id="refresh-selected"
+              title="重新读取选中文件"
+              aria-label="重新读取选中文件"
+            >
+              ↻
+            </button>
+          </div>
+          <div class="list-meta">
+            <span id="list-summary">0 首歌曲</span>
+            <div class="selection-actions">
+              <button class="text-button" id="select-visible">全选</button
+              ><button class="text-button" id="rename-button" disabled>
+                重命名</button
+              ><button class="text-button" id="remove-button" disabled>
+                移出列表
+              </button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="check-col">
+                    <input
+                      type="checkbox"
+                      id="select-all"
+                      aria-label="选择当前列表中的全部歌曲"
+                    />
+                  </th>
+                  <th>歌曲</th>
+                  <th class="album-col">专辑</th>
+                  <th class="duration-col">时长</th>
+                </tr>
+              </thead>
+              <tbody id="track-list"></tbody>
+            </table>
+            <div class="empty-state" id="empty-state">
+              <div class="empty-icon">♫</div>
+              <h2 id="empty-title">从音乐开始</h2>
+              <p id="empty-description">
+                添加 MP3 文件，或从已配置的服务器音乐目录中选择歌曲。
+              </p>
+              <button class="button primary" id="empty-add">添加 MP3</button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="editor-panel" aria-label="标签编辑器">
+          <div class="editor-top">
+            <div><h2>标签编辑</h2></div>
+            <span class="editor-badge" id="editor-badge">未选择</span>
+          </div>
+          <div id="editor-empty" class="editor-empty">
+            <div class="editor-empty-icon">♪</div>
+            <h3>选择一首歌曲</h3>
+            <p>查看并编辑标签、封面和歌词。也可以选择多首歌曲进行批量修改。</p>
+          </div>
+          <div id="editor" class="editor" hidden>
+            <div class="cover-row">
+              <div class="cover-frame" id="cover-frame">
+                <img id="cover-preview" alt="专辑封面" hidden /><span
+                  id="cover-placeholder"
+                  >♫</span
+                >
+              </div>
+              <div class="cover-copy">
+                <strong id="editor-title">歌曲信息</strong
+                ><span id="editor-filename"></span>
+                <div class="cover-actions">
+                  <button class="text-button accent" id="choose-cover">
+                    更换封面</button
+                  ><button class="text-button" id="remove-cover">移除</button>
+                </div>
+                <input
+                  type="file"
+                  id="cover-input"
+                  accept="image/jpeg,image/png"
+                  hidden
+                />
+              </div>
+            </div>
+            <div class="editor-notice" id="batch-notice" hidden>
+              只会修改你填写或更改的字段，其他标签保持原样。
+            </div>
+            <div class="editor-scroll">
+              <div class="section-heading">
+                <h3>基本信息</h3>
+                <button class="text-button accent" id="match-button">
+                  ✧ 在线匹配
+                </button>
+              </div>
+              <div class="form-grid">
+                <label class="field full"
+                  >歌曲名称<input
+                    data-field="title"
+                    autocomplete="off"
+                    placeholder="输入歌曲名称"
+                /></label>
+                <label class="field full"
+                  >艺术家<input
+                    data-field="artist"
+                    autocomplete="off"
+                    placeholder="输入艺术家"
+                /></label>
+                <label class="field full"
+                  >专辑<input
+                    data-field="album"
+                    autocomplete="off"
+                    placeholder="输入专辑名称"
+                /></label>
+                <label class="field full"
+                  >专辑艺术家<input
+                    data-field="albumArtist"
+                    autocomplete="off"
+                    placeholder="输入专辑艺术家"
+                /></label>
+                <label class="field"
+                  >年份<input
+                    data-field="year"
+                    autocomplete="off"
+                    placeholder="例如 2024"
+                /></label>
+                <label class="field"
+                  >曲目编号<input
+                    data-field="track"
+                    autocomplete="off"
+                    placeholder="例如 1/12"
+                /></label>
+                <label class="field"
+                  >流派<input
+                    data-field="genre"
+                    autocomplete="off"
+                    placeholder="输入流派"
+                /></label>
+                <label class="field"
+                  >光盘编号<input
+                    data-field="disc"
+                    autocomplete="off"
+                    placeholder="例如 1/2"
+                /></label>
+                <label class="field full"
+                  >作曲<input
+                    data-field="composer"
+                    autocomplete="off"
+                    placeholder="输入作曲者"
+                /></label>
+                <label class="field full"
+                  >备注<input
+                    data-field="comment"
+                    autocomplete="off"
+                    placeholder="添加备注"
+                /></label>
+                <label class="field full"
+                  >歌词<textarea
+                    data-field="lyrics"
+                    rows="5"
+                    placeholder="输入歌词，或通过在线匹配获取"
+                  ></textarea>
+                </label>
+              </div>
+            </div>
+            <div class="editor-footer">
+              <div id="edit-status" class="edit-status">修改后保存到文件</div>
+              <div class="footer-actions">
+                <button class="button subtle" id="download-button">下载</button
+                ><button
+                  class="button primary save-button"
+                  id="save-button"
+                  disabled
+                >
+                  保存修改
+                </button>
+              </div>
+              <audio
+                id="player"
+                controls
+                preload="none"
+                aria-label="试听歌曲"
+              ></audio>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <dialog id="match-dialog">
+      <div class="dialog-header">
+        <div>
+          <h2>在线匹配</h2>
+          <p>搜索并选择正确的歌曲，结果会先填入编辑区。</p>
+        </div>
+        <button
+          class="close-button"
+          data-close="match-dialog"
+          aria-label="关闭"
+        >
+          ×
+        </button>
+      </div>
+      <form id="match-form" class="match-form">
+        <label class="field"
+          >歌曲名称<input
+            id="match-title"
+            required
+            placeholder="输入歌曲名称" /></label
+        ><label class="field"
+          >艺术家<input
+            id="match-artist"
+            placeholder="输入艺术家，可选" /></label
+        ><button class="button primary" type="submit">搜索</button>
+      </form>
+      <div class="dialog-caption" id="match-status">
+        搜索 MusicBrainz 和 LRCLIB
+      </div>
+      <div class="match-results" id="match-results"></div>
+    </dialog>
+
+    <dialog id="rename-dialog">
+      <div class="dialog-header">
+        <div>
+          <h2>批量重命名</h2>
+          <p>根据已保存的标签生成文件名。</p>
+        </div>
+        <button
+          class="close-button"
+          data-close="rename-dialog"
+          aria-label="关闭"
+        >
+          ×
+        </button>
+      </div>
+      <label class="field"
+        >文件名模板<input id="rename-template" value="%artist% - %title%"
+      /></label>
+      <p class="field-hint">
+        可用字段 %artist%、%title%、%album%、%albumArtist% 、%track% 、%year%
+        、%genre% 和 %filename%。
+      </p>
+      <div id="rename-preview" class="rename-preview"></div>
+      <div class="dialog-actions">
+        <button class="button subtle" data-close="rename-dialog">取消</button
+        ><button class="button primary" id="apply-rename">确认重命名</button>
+      </div>
+    </dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
