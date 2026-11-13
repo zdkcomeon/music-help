@@ -75,10 +75,10 @@ class MusicHelpTest(unittest.TestCase):
         self.assertEqual(read_track(second, second.name, "library")["artist"], "原艺术家")
         self.assertEqual(read_track(first, first.name, "library")["title"], "旧歌名")
 
-    def test_upload_detects_mp4_and_rename_never_overwrites(self):
+    def test_invalid_audio_and_rename_never_overwrites(self):
         response = self.client.post("/api/files", data={"file": (io.BytesIO(b"\x00\x00\x00\x18ftyp" + bytes(100)), "wrong.mp3")}, headers=self.headers)
         self.assertEqual(response.status_code, 400)
-        self.assertIn("MP4", response.get_json()["error"])
+        self.assertIn("无法识别音频格式", response.get_json()["error"])
         self.make_track("first.mp3")
         target = self.make_track("原艺术家 - 旧歌名.mp3")
         target_bytes = target.read_bytes()

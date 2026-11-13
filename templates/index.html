@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content="{{ csrf_token }}" />
+    <meta name="audio-extensions" content="{{ audio_extensions|join(',') }}" />
     <title>Music Help - 音乐标签工作台</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
@@ -16,19 +17,17 @@
       <div class="top-actions">
         <button class="button subtle" id="add-folder">添加文件夹</button>
         <button class="button primary" id="add-files">
-          <span class="plus">＋</span> 添加 MP3
+          <span class="plus">＋</span> 添加音频
         </button>
         <input
           id="file-input"
           type="file"
-          accept=".mp3,audio/mpeg"
           multiple
           hidden
         />
         <input
           id="folder-input"
           type="file"
-          accept=".mp3,audio/mpeg"
           webkitdirectory
           multiple
           hidden
@@ -127,9 +126,9 @@
               <div class="empty-icon">♫</div>
               <h2 id="empty-title">从音乐开始</h2>
               <p id="empty-description">
-                添加 MP3 文件，或从已配置的服务器音乐目录中选择歌曲。
+                添加音频文件，或从已配置的服务器音乐目录中选择歌曲。
               </p>
-              <button class="button primary" id="empty-add">添加 MP3</button>
+              <button class="button primary" id="empty-add">添加音频</button>
             </div>
           </div>
         </section>
@@ -155,6 +154,7 @@
               <div class="cover-copy">
                 <strong id="editor-title">歌曲信息</strong
                 ><span id="editor-filename"></span>
+                <span id="editor-format"></span>
                 <div class="cover-actions">
                   <button class="text-button accent" id="choose-cover">
                     更换封面</button
@@ -325,6 +325,7 @@
         可用字段 %artist%、%title%、%album%、%albumArtist% 、%track% 、%year%
         、%genre% 和 %filename%。
       </p>
+      <label class="rename-option"><input type="checkbox" id="fix-extension" /> 按实际音频格式修正扩展名</label>
       <div id="rename-preview" class="rename-preview"></div>
       <div class="dialog-actions">
         <button class="button subtle" data-close="rename-dialog">取消</button

@@ -11,10 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_file
-from mutagen.mp3 import MP3
-
 from music_help import online
-from music_help.tags import FIELDS, file_version, read_track, selected_cover, update_tags
+from music_help.tags import AUDIO_EXTENSIONS, FIELDS, UnrecognizedAudio, audio_cover, file_version, load_audio, read_track, update_tags
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("music_help")
@@ -57,24 +55,28 @@ def track_data(file_id, entry):
 def safe_name(name):
     name = str(name).replace("\\", "/").split("/")[-1]
     name = re.sub(r'[\x00-\x1f<>:"/\\|?*]', "_", name).strip(" .")
-    return name or "untitled.mp3"
+    return name or "untitled"
 
 
-def renamed_name(template, data):
+def renamed_name(template, data, use_detected_extension=False):
     allowed = FIELDS | {"filename"}
     fields = re.findall(r"%([a-zA-Z]+)%", template)
     if not fields or any(field not in allowed for field in fields) or re.sub(r"%[a-zA-Z]+%", "", template).find("%") >= 0:
         raise ValueError("重命名模板包含无效字段。")
-    values = {**data, "filename": Path(data["name"]).stem}
+    values = {**data, "filename": data["baseName"]}
     name = re.sub(r"%([a-zA-Z]+)%", lambda match: str(values.get(match[1], "")), template)
     name = re.sub(r'[\x00-\x1f<>:"/\\|?*]', "_", name).strip(" .")
-    if name.lower().endswith(".mp3"):
-        name = name[:-4].rstrip(" .")
+    original_extension = data["fileExtension"]
+    extension = data["detectedExtension"] if use_detected_extension else original_extension
+    for suffix in {original_extension, extension} - {""}:
+        if name.lower().endswith(suffix.lower()):
+            name = name[:-len(suffix)].rstrip(" .")
+            break
     if not name or name.casefold() in {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}:
         raise ValueError("生成的文件名无效。")
-    if len((name + ".mp3").encode("utf-8")) > 240:
+    if len((name + extension).encode("utf-8")) > 240:
         raise ValueError("生成的文件名过长。")
-    return name + ".mp3"
+    return name + extension
 
 
 @app.before_request
@@ -95,7 +97,7 @@ def client_error(error):
 
 @app.get("/")
 def index():
-    return render_template("index.html", csrf_token=csrf_token)
+    return render_template("index.html", csrf_token=csrf_token, audio_extensions=sorted(AUDIO_EXTENSIONS))
 
 
 @app.get("/api/library")
@@ -117,7 +119,7 @@ def library():
             directories[:] = sorted(name for name in directories if not (Path(folder) / name).is_symlink())
             for name in sorted(files):
                 path = Path(folder) / name
-                if path.suffix.lower() != ".mp3" or path.is_symlink():
+                if path.is_symlink() or name.startswith(".music-help-"):
                     continue
                 relative = str(path.relative_to(library_root))
                 if not path.resolve().is_relative_to(library_root):
@@ -129,7 +131,11 @@ def library():
                     entries[file_id] = entry
                     seen.add(file_id)
                     tracks.append(data)
-                    logger.info("library.file_loaded operation_id=%s file_id=%s path=%s status=success", operation_id, file_id, relative)
+                    logger.info("library.file_loaded operation_id=%s file_id=%s path=%s format=%s status=success", operation_id, file_id, relative, data["format"])
+                except UnrecognizedAudio as exc:
+                    if path.suffix.lower() in AUDIO_EXTENSIONS:
+                        errors.append({"name": relative, "error": str(exc)})
+                        logger.warning("library.file_unrecognized operation_id=%s path=%s error=%s", operation_id, relative, exc)
                 except Exception as exc:
                     errors.append({"name": relative, "error": str(exc)})
                     logger.exception("library.file_failed operation_id=%s path=%s", operation_id, relative)
@@ -145,12 +151,10 @@ def upload_file():
     started = time.monotonic()
     upload = request.files.get("file")
     if not upload or not upload.filename:
-        abort(400, "请选择 MP3 文件。")
+        abort(400, "请选择音频文件。")
     name = safe_name(upload.filename)
-    if not name.lower().endswith(".mp3"):
-        abort(400, "仅支持扩展名为 .mp3 的文件。")
     file_id = uuid.uuid4().hex
-    path = Path(uploads.name) / f"{file_id}.mp3"
+    path = Path(uploads.name) / file_id
     logger.info("upload.received operation_id=%s file_id=%s name=%s", operation_id, file_id, name)
     try:
         upload.save(path)
@@ -158,7 +162,7 @@ def upload_file():
         data = track_data(file_id, entry)
         with lock:
             entries[file_id] = entry
-        logger.info("upload.completed operation_id=%s file_id=%s bytes=%s elapsed_ms=%s", operation_id, file_id, data["size"], round((time.monotonic() - started) * 1000))
+        logger.info("upload.completed operation_id=%s file_id=%s format=%s bytes=%s elapsed_ms=%s", operation_id, file_id, data["format"], data["size"], round((time.monotonic() - started) * 1000))
         return jsonify(track=data)
     except Exception as exc:
         path.unlink(missing_ok=True)
@@ -214,9 +218,10 @@ def rename():
     started = time.monotonic()
     payload = request.get_json(silent=True) or {}
     selected, template = payload.get("files"), payload.get("template")
-    if not isinstance(selected, list) or not selected or not isinstance(template, str) or len(template) > 500:
+    use_detected_extension = payload.get("useDetectedExtension", False)
+    if not isinstance(selected, list) or not selected or not isinstance(template, str) or len(template) > 500 or not isinstance(use_detected_extension, bool):
         abort(400, "请选择文件并填写重命名模板。")
-    logger.info("rename.request_received operation_id=%s file_count=%s template=%s", operation_id, len(selected), template)
+    logger.info("rename.request_received operation_id=%s file_count=%s template=%s use_detected_extension=%s", operation_id, len(selected), template, use_detected_extension)
     renamed, errors = [], []
     with lock:
         for item in selected:
@@ -226,7 +231,7 @@ def rename():
                 entry = valid_entry(file_id)
                 if file_version(entry.path) != item.get("version"):
                     raise ValueError("文件已被其他程序修改，请重新加载后再重命名。")
-                name = renamed_name(template, track_data(file_id, entry))
+                name = renamed_name(template, track_data(file_id, entry), use_detected_extension)
                 if entry.source == "library" and name != entry.name:
                     target = entry.path.with_name(name)
                     try:
@@ -264,17 +269,18 @@ def rename():
 @app.get("/api/files/<file_id>/cover")
 def cover(file_id):
     entry = valid_entry(file_id)
-    frame = selected_cover(MP3(entry.path).tags)
-    if not frame:
+    image = audio_cover(load_audio(entry.path))
+    if not image:
         abort(404, "文件没有封面。")
     from io import BytesIO
-    return send_file(BytesIO(frame.data), mimetype=frame.mime, max_age=0)
+    return send_file(BytesIO(image[1]), mimetype=image[0], max_age=0)
 
 
 @app.get("/api/files/<file_id>/audio")
 def audio(file_id):
     entry = valid_entry(file_id)
-    return send_file(entry.path, mimetype="audio/mpeg", conditional=True)
+    data = track_data(file_id, entry)
+    return send_file(entry.path, mimetype=data["mimeType"], conditional=True)
 
 
 @app.get("/api/download")
@@ -299,7 +305,7 @@ def download():
                     name = entry.name
                     number = 2
                     while name.casefold() in names:
-                        name = f"{Path(entry.name).stem} ({number}).mp3"
+                        name = f"{Path(entry.name).stem} ({number}){Path(entry.name).suffix}"
                         number += 1
                     names.add(name.casefold())
                     output.write(entry.path, arcname=name)
@@ -337,7 +343,7 @@ def online_details():
 
 def main():
     global library_root
-    parser = argparse.ArgumentParser(description="Music Help MP3 标签管理")
+    parser = argparse.ArgumentParser(description="Music Help 音频标签管理")
     parser.add_argument("--music-dir", default=os.environ.get("MUSIC_DIR"), help="服务器音乐目录")
     parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8765")))

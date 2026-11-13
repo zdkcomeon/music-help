@@ -1,6 +1,7 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const token = $('meta[name="csrf-token"]').content;
+const audioExtensions = new Set($('meta[name="audio-extensions"]').content.split(","));
 const fields = $$("[data-field]");
 const state = {
   tracks: [],
@@ -123,7 +124,8 @@ function renderTable() {
       const cover = track.hasCover
         ? `<img src="${coverUrl(track)}" alt="">`
         : "♫";
-      return `<tr class="track-row${selected ? " selected" : ""}" data-id="${escapeHtml(track.id)}"><td><input type="checkbox" aria-label="选择 ${escapeHtml(track.name)}" ${selected ? "checked" : ""}></td><td><div class="song-cell"><div class="track-cover">${cover}</div><div class="song-copy"><strong>${escapeHtml(track.title || track.name.replace(/\.mp3$/i, ""))}</strong><span>${escapeHtml(track.artist || "未知艺术家")}</span></div></div></td><td class="album-cell">${escapeHtml(track.album || "—")}</td><td>${duration(track.duration)}</td></tr>`;
+      const format = `${track.format}${track.extensionMismatch ? " · 后缀不匹配" : ""}`;
+      return `<tr class="track-row${selected ? " selected" : ""}" data-id="${escapeHtml(track.id)}"><td><input type="checkbox" aria-label="选择 ${escapeHtml(track.name)}" ${selected ? "checked" : ""}></td><td><div class="song-cell"><div class="track-cover">${cover}</div><div class="song-copy"><strong>${escapeHtml(track.title || track.baseName)}</strong><span>${escapeHtml(track.artist || "未知艺术家")} · ${escapeHtml(format)}</span></div></div></td><td class="album-cell">${escapeHtml(track.album || "—")}</td><td>${duration(track.duration)}</td></tr>`;
     })
     .join("");
   $("#empty-state").hidden = tracks.length > 0;
@@ -132,7 +134,7 @@ function renderTable() {
     : "从音乐开始";
   $("#empty-description").textContent = state.tracks.length
     ? "试试其他搜索条件，或切换文件来源。"
-    : "添加 MP3 文件，或从已配置的服务器音乐目录中选择歌曲。";
+    : "添加音频文件，或从已配置的服务器音乐目录中选择歌曲。";
   $("#empty-add").hidden = state.tracks.length > 0;
   $$("#track-list tr").forEach((row) => {
     row.addEventListener("click", (event) => {
@@ -177,11 +179,14 @@ function renderEditor() {
     return;
   }
   $("#editor-title").textContent = single
-    ? single.title || single.name.replace(/\.mp3$/i, "")
+    ? single.title || single.baseName
     : `批量编辑 ${selected.length} 首歌曲`;
   $("#editor-filename").textContent = single
     ? single.relativePath || single.name
     : "填写需要统一修改的字段";
+  $("#editor-format").textContent = single
+    ? `${single.format}${single.extensionMismatch ? ` · 建议后缀 ${single.detectedExtension}` : ""}`
+    : "";
   $("#batch-notice").hidden = !!single;
   for (const input of fields) {
     const values = new Set(selected.map((track) => track[input.dataset.field]));
@@ -264,17 +269,36 @@ async function loadLibrary(initial = false) {
     notify(error.message);
   }
 }
-async function uploadFiles(files) {
-  const mp3s = [...files].filter((file) => /\.mp3$/i.test(file.name));
-  if (!mp3s.length) return notify("请选择 MP3 文件");
+async function likelyAudio(file) {
+  const suffix = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+  if (audioExtensions.has(suffix) || file.type.startsWith("audio/")) return true;
+  const header = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+  const text = String.fromCharCode(...header);
+  return ["ID3", "fLaC", "OggS", "RIFF", "FORM", "TTA1", "wvpk", "MAC ", "tBaK"].some((value) => text.startsWith(value)) ||
+    text.slice(4, 8) === "ftyp" ||
+    (header[0] === 0xff && (header[1] & 0xe0) === 0xe0) ||
+    (header[0] === 0x30 && header[1] === 0x26 && header[2] === 0xb2 && header[3] === 0x75);
+}
+
+async function uploadFiles(files, folder = false) {
+  const selected = [...files];
+  if (!selected.length) return notify("请选择音频文件");
   if (state.busy) return;
   state.busy = true;
   updateStatus();
   let completed = 0;
   const errors = [];
-  for (const file of mp3s) {
+  const candidates = [];
+  for (const file of selected) {
+    try {
+      if (!folder || await likelyAudio(file)) candidates.push(file);
+    } catch (error) {
+      errors.push(`${file.name}：${error.message}`);
+    }
+  }
+  for (const [index, file] of candidates.entries()) {
     notify(
-      `正在导入 ${completed + errors.length + 1} / ${mp3s.length}：${file.name}`,
+      `正在导入 ${index + 1} / ${candidates.length}：${file.name}`,
       30000,
     );
     const data = new FormData();
@@ -294,6 +318,7 @@ async function uploadFiles(files) {
   );
   renderTable();
   updateStatus();
+  if (!candidates.length && !errors.length) return notify("没有找到可识别的音频文件");
   notify(
     errors.length
       ? `已导入 ${completed} 首，${errors.length} 个文件失败。${errors[0]}`
@@ -314,7 +339,7 @@ $("#add-files").onclick = $("#empty-add").onclick = () =>
 $("#add-folder").onclick = () => $("#folder-input").click();
 for (const id of ["file-input", "folder-input"])
   $(`#${id}`).addEventListener("change", (event) => {
-    uploadFiles(event.target.files);
+    uploadFiles(event.target.files, id === "folder-input");
     event.target.value = "";
   });
 $("#filter").addEventListener("input", renderTable);
@@ -468,7 +493,7 @@ $("#match-button").onclick = () => {
   let title = $('[data-field="title"]').value;
   let artist = $('[data-field="artist"]').value;
   if (!title) {
-    const filename = track.name.replace(/\.mp3$/i, "");
+    const filename = track.baseName;
     const parts = filename.split(" - ");
     if (!artist && parts.length > 1) {
       artist = parts.shift();
@@ -572,12 +597,19 @@ function updateRenamePreview() {
   const template = $("#rename-template").value;
   $("#rename-preview").innerHTML = selectedTracks()
     .map((track) => {
-      const values = { ...track, filename: track.name.replace(/\.mp3$/i, "") };
-      const name = template
+      const values = { ...track, filename: track.baseName };
+      const extension = $("#fix-extension").checked ? track.detectedExtension : track.fileExtension;
+      let name = template
         .replace(/%([a-zA-Z]+)%/g, (_, field) => values[field] || "")
         .replace(/[\x00-\x1f<>:"/\\|?*]/g, "_")
         .replace(/^[ .]+|[ .]+$/g, "");
-      return `<div>${escapeHtml(track.name)} <span>→</span> <b>${escapeHtml(name.replace(/\.mp3$/i, "") || "…")}.mp3</b></div>`;
+      for (const suffix of [track.fileExtension, extension]) {
+        if (suffix && name.toLowerCase().endsWith(suffix.toLowerCase())) {
+          name = name.slice(0, -suffix.length).replace(/[ .]+$/g, "");
+          break;
+        }
+      }
+      return `<div>${escapeHtml(track.name)} <span>→</span> <b>${escapeHtml(name || "…")}${escapeHtml(extension)}</b></div>`;
     })
     .join("");
 }
@@ -587,6 +619,7 @@ $("#rename-button").onclick = () => {
   $("#rename-dialog").showModal();
 };
 $("#rename-template").oninput = updateRenamePreview;
+$("#fix-extension").onchange = updateRenamePreview;
 $("#apply-rename").onclick = async () => {
   if (state.busy) return;
   $("#player").pause();
@@ -601,6 +634,7 @@ $("#apply-rename").onclick = async () => {
       jsonRequest("POST", {
         files: selectedTracks().map(({ id, version }) => ({ id, version })),
         template: $("#rename-template").value,
+        useDetectedExtension: $("#fix-extension").checked,
       }),
     );
     replaceTracks(result.tracks);

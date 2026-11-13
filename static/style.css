@@ -719,6 +719,14 @@ dialog::backdrop {
 .field-hint {
   margin: 8px 0 15px;
 }
+.rename-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: #717b6e;
+}
 .rename-preview {
   max-height: 240px;
   overflow: auto;
