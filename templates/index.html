@@ -35,56 +35,56 @@
       </div>
     </header>
 
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="side-label">音乐库</div>
-        <nav aria-label="文件来源">
-          <button class="nav-item active" data-source="all">
-            <span class="nav-icon">▦</span> 全部歌曲
-            <span class="nav-count" id="count-all">0</span>
-          </button>
-          <button class="nav-item" data-source="library">
-            <span class="nav-icon">▱</span> 服务器目录
-            <span class="nav-count" id="count-library">0</span>
-          </button>
-          <button class="nav-item" data-source="upload">
-            <span class="nav-icon">⇧</span> 已上传文件
-            <span class="nav-count" id="count-upload">0</span>
-          </button>
-        </nav>
-        <div class="sidebar-bottom">
-          <div class="connection">
-            <span class="connection-dot"></span
-            ><span id="library-status">正在检查音乐目录</span>
+    <main class="app-shell">
+      <section class="onboarding" id="onboarding">
+        <div class="onboarding-card">
+          <div class="onboarding-icon">♫</div>
+          <h1>开始整理你的音乐</h1>
+          <p>导入音频后即可编辑标签、封面和歌词。文件只在本地处理。</p>
+          <div class="onboarding-actions">
+            <button class="button primary" id="onboarding-add">
+              添加音频
+            </button>
+            <button class="button subtle" id="onboarding-folder">
+              添加文件夹
+            </button>
           </div>
-          <button class="text-button" id="refresh-library">
-            刷新服务器目录 <span>↻</span>
-          </button>
+          <p class="onboarding-hint">
+            支持 MP3、FLAC、M4A、WAV 等格式，也可以把文件拖到这里。
+          </p>
         </div>
-      </aside>
+      </section>
 
-      <main class="workspace">
-        <section class="library-panel" aria-label="音乐文件列表">
-          <div class="page-heading">
-            <h1>音乐文件</h1>
-          </div>
+      <div class="workspace" id="workspace" hidden>
+        <section class="library-panel" id="library-panel" aria-label="音乐文件列表">
+          <h1 class="sr-only">音乐文件</h1>
           <div class="list-toolbar">
             <label class="search-box"
               ><span aria-hidden="true">⌕</span
               ><input
                 id="filter"
                 type="search"
-                placeholder="搜索歌名、艺术家或文件名"
+                placeholder="搜索歌名或艺术家"
                 aria-label="搜索音乐文件"
               /><kbd>/</kbd></label
             >
             <button
               class="button icon-button"
               id="refresh-selected"
-              title="重新读取选中文件"
-              aria-label="重新读取选中文件"
+              title="重新读取选中文件或服务器目录"
+              aria-label="重新读取选中文件或服务器目录"
             >
               ↻
+            </button>
+            <button
+              class="button icon-button"
+              id="collapse-library"
+              title="收起歌曲列表"
+              aria-label="收起歌曲列表"
+              aria-expanded="true"
+              aria-controls="library-panel"
+            >
+              ‹
             </button>
           </div>
           <div class="list-meta">
@@ -116,15 +116,22 @@
               </thead>
               <tbody id="track-list"></tbody>
             </table>
-            <div class="empty-state" id="empty-state">
+            <div class="empty-state" id="empty-state" hidden>
               <div class="empty-icon">♫</div>
-              <h2 id="empty-title">从音乐开始</h2>
-              <p id="empty-description">
-                添加音频文件，或从已配置的服务器音乐目录中选择歌曲。
-              </p>
-              <button class="button primary" id="empty-add">添加音频</button>
+              <h2>没有匹配的歌曲</h2>
+              <p>换个关键词试试。</p>
             </div>
           </div>
+          <button
+            class="button icon-button library-expand"
+            id="expand-library"
+            title="展开歌曲列表"
+            aria-label="展开歌曲列表"
+            aria-expanded="false"
+            aria-controls="library-panel"
+          >
+            ›
+          </button>
         </section>
 
         <aside class="editor-panel" aria-label="标签编辑器">
@@ -147,11 +154,13 @@
               </div>
               <div class="cover-copy">
                 <strong id="editor-title">歌曲信息</strong
+                ><span id="editor-meta" class="editor-meta" hidden></span
                 ><span id="editor-filename"></span>
                 <span id="editor-format"></span>
                 <div class="cover-actions">
                   <button class="text-button accent" id="choose-cover">
                     更换封面</button
+                  ><button class="text-button" id="search-cover">搜索封面</button
                   ><button class="text-button" id="remove-cover">移除</button>
                 </div>
                 <input
@@ -264,8 +273,8 @@
             </div>
           </div>
         </aside>
-      </main>
-    </div>
+      </div>
+    </main>
 
     <dialog id="match-dialog">
       <div class="dialog-header">
@@ -294,6 +303,15 @@
             placeholder="输入艺术家，可留空" /></label
         ><button class="button primary" type="submit">搜索</button>
       </form>
+      <div class="match-options">
+        <span>获取内容</span>
+        <label
+          ><input type="checkbox" id="match-cover" checked /> 封面</label
+        >
+        <label
+          ><input type="checkbox" id="match-lyrics" checked /> 歌词</label
+        >
+      </div>
       <div class="dialog-caption" id="match-status">
         请填写名称或艺术家，然后点击搜索。
       </div>

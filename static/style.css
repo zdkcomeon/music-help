@@ -36,6 +36,20 @@ button:focus-visible {
 [hidden] {
   display: none !important;
 }
+body.is-empty .top-actions {
+  display: none;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 .topbar {
   height: 74px;
   background: #fff;
@@ -108,104 +122,87 @@ button:focus-visible {
   margin-right: 2px;
 }
 .app-shell {
-  display: flex;
   min-height: calc(100vh - 74px);
 }
-.sidebar {
-  width: 198px;
-  flex: none;
-  padding: 36px 14px 23px 18px;
-  display: flex;
-  flex-direction: column;
-  background: #fafaf7;
-  border-right: 1px solid var(--line);
-}
-.side-label {
-  font-size: 11px;
-  font-weight: 700;
-  color: #a4a99f;
-  padding: 0 10px;
-  margin-bottom: 15px;
-}
-.sidebar nav {
+.onboarding {
+  min-height: calc(100vh - 74px);
   display: grid;
-  gap: 5px;
+  place-items: center;
+  padding: 40px 24px 90px;
 }
-.nav-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 0;
-  background: transparent;
-  border-radius: 8px;
-  text-align: left;
-  padding: 11px 10px;
-  color: #81877c;
-  font-size: 13px;
-}
-.nav-item.active {
-  background: #e9eee7;
-  color: #344c39;
-  font-weight: 700;
-}
-.nav-icon {
-  font-size: 19px;
-  width: 19px;
-  line-height: 14px;
+.onboarding-card {
+  width: min(470px, 100%);
   text-align: center;
 }
-.nav-count {
-  margin-left: auto;
-  font-size: 11px;
-  color: #a3a99f;
+.onboarding-icon {
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 26px;
+  border-radius: 24px;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 36px #25272414;
+  color: var(--accent);
+  font-size: 34px;
 }
-.sidebar-bottom {
-  margin-top: auto;
-  border-top: 1px solid var(--line);
-  padding: 19px 9px 0;
+.onboarding h1 {
+  margin: 0 0 12px;
+  font-size: 27px;
+  letter-spacing: -0.04em;
 }
-.connection {
+.onboarding p {
+  margin: 0 auto 26px;
+  max-width: 390px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.onboarding-actions {
   display: flex;
-  align-items: center;
-  gap: 7px;
-  color: #92998d;
+  justify-content: center;
+  gap: 10px;
+}
+.onboarding-actions .button {
+  min-height: 42px;
+  padding: 0 20px;
+}
+.onboarding .onboarding-hint {
+  margin: 22px auto 0;
   font-size: 11px;
-}
-.connection-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #9ca99b;
-}
-.connection-dot.ready {
-  background: #6caa7d;
-}
-.sidebar-bottom .text-button {
-  margin-top: 14px;
-  color: #778173;
-}
-.sidebar-bottom .text-button span {
-  font-size: 16px;
-  margin-left: 4px;
+  color: #a6aca2;
 }
 .workspace {
-  min-width: 0;
-  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(290px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+}
+.workspace.library-collapsed {
+  grid-template-columns: 54px minmax(0, 1fr);
+}
+.workspace.library-collapsed .library-panel {
+  display: flex;
+  justify-content: center;
+  padding: 12px 8px;
+}
+.workspace.library-collapsed .library-panel > *:not(.library-expand) {
+  display: none;
+}
+.library-expand {
+  display: none;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+}
+.workspace.library-collapsed .library-expand {
+  display: grid;
+  place-items: center;
+  font-size: 18px;
 }
 .library-panel {
   min-width: 0;
-  padding: 28px 18px 24px;
-}
-.page-heading {
-  margin-bottom: 20px;
-}
-.page-heading h1 {
-  font-size: 22px;
-  letter-spacing: -0.04em;
-  margin: 0;
+  padding: 24px 18px 24px;
 }
 .list-toolbar {
   display: flex;
@@ -287,8 +284,8 @@ button:focus-visible {
   background: #fff;
   border-radius: 11px;
   overflow: auto;
-  min-height: 220px;
-  max-height: calc(100vh - 230px);
+  min-height: 120px;
+  max-height: calc(100vh - 208px);
 }
 table {
   width: 100%;
@@ -508,6 +505,10 @@ input[type="checkbox"] {
   color: #a1a89c;
   font-size: 11px;
 }
+.cover-copy .editor-meta {
+  color: #6f7b6d;
+  font-size: 12px;
+}
 .cover-actions {
   display: flex;
   gap: 13px;
@@ -527,6 +528,10 @@ input[type="checkbox"] {
   min-height: 0;
   padding: 23px 26px 28px;
   flex: 1;
+}
+.editor-scroll > .section-heading,
+.editor-scroll > .form-grid {
+  max-width: 1400px;
 }
 .section-heading {
   display: flex;
@@ -649,6 +654,24 @@ dialog::backdrop {
   gap: 10px;
   align-items: end;
 }
+.match-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 2px 0 12px;
+  color: #717b6e;
+  font-size: 12px;
+}
+.match-options > span {
+  color: #9aa196;
+}
+.match-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
 .dialog-caption {
   font-size: 11px;
   color: #98a294;
@@ -753,24 +776,6 @@ dialog::backdrop {
   transform: translate(-50%, 0);
 }
 @media (max-width: 1150px) {
-  .sidebar {
-    width: 64px;
-    padding-left: 10px;
-    padding-right: 10px;
-  }
-  .side-label,
-  .nav-item:not(.active) .nav-count,
-  .nav-count,
-  .sidebar-bottom,
-  .nav-item {
-    font-size: 0;
-  }
-  .nav-item {
-    justify-content: center;
-  }
-  .nav-icon {
-    font-size: 20px;
-  }
   .library-panel {
     padding-left: 16px;
     padding-right: 16px;
@@ -779,37 +784,6 @@ dialog::backdrop {
 @media (max-width: 850px) {
   .topbar {
     padding: 0 18px;
-  }
-  .app-shell {
-    display: block;
-  }
-  .sidebar {
-    width: 100%;
-    height: auto;
-    display: flex;
-    flex-direction: row;
-    padding: 8px 16px;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-  .sidebar nav {
-    display: flex;
-    width: 100%;
-  }
-  .side-label,
-  .sidebar-bottom {
-    display: none;
-  }
-  .nav-item,
-  .nav-item:not(.active) .nav-count {
-    font-size: 12px;
-  }
-  .nav-item {
-    width: auto;
-    padding: 8px 12px;
-  }
-  .nav-icon {
-    font-size: 16px;
   }
   .workspace {
     display: block;
@@ -863,11 +837,14 @@ dialog::backdrop {
     font-size: 11px;
     padding: 0 8px;
   }
-  .sidebar nav {
-    overflow: auto;
+  .onboarding {
+    padding: 30px 18px 60px;
   }
-  .nav-item {
-    white-space: nowrap;
+  .onboarding h1 {
+    font-size: 23px;
+  }
+  .onboarding-actions {
+    flex-direction: column;
   }
   .album-col,
   .album-cell {
@@ -878,9 +855,6 @@ dialog::backdrop {
   }
   .selection-actions {
     gap: 9px;
-  }
-  .page-heading h1 {
-    font-size: 23px;
   }
   .form-grid {
     grid-template-columns: 1fr;

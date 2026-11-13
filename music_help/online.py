@@ -391,19 +391,21 @@ def get_cover(candidate, operation_id):
 def details(candidate, operation_id):
     logger.info("online.details_started operation_id=%s candidate=%s", operation_id, candidate)
     warnings = []
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {
-            "lyrics": executor.submit(get_lyrics, candidate, operation_id),
-            "cover": executor.submit(get_cover, candidate, operation_id),
-        }
-        result = {}
-        for field, future in futures.items():
-            try:
-                result[field] = future.result()
-            except Exception:
-                logger.exception("online.details_field_failed operation_id=%s field=%s candidate=%s", operation_id, field, candidate)
-                result[field] = None
-                warnings.append("歌词获取失败" if field == "lyrics" else "封面获取失败")
+    result = {"lyrics": None, "cover": None}
+    tasks = {}
+    if not candidate.get("skipLyrics"):
+        tasks["lyrics"] = get_lyrics
+    if not candidate.get("skipCover"):
+        tasks["cover"] = get_cover
+    if tasks:
+        with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+            futures = {field: executor.submit(call, candidate, operation_id) for field, call in tasks.items()}
+            for field, future in futures.items():
+                try:
+                    result[field] = future.result()
+                except Exception:
+                    logger.exception("online.details_field_failed operation_id=%s field=%s candidate=%s", operation_id, field, candidate)
+                    warnings.append("歌词获取失败" if field == "lyrics" else "封面获取失败")
     result["warnings"] = warnings
     logger.info("online.details_completed operation_id=%s lyrics_found=%s cover_found=%s warnings=%s", operation_id, bool(result["lyrics"]), bool(result["cover"]), warnings)
     return result

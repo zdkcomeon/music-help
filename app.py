@@ -379,9 +379,10 @@ def online_details():
     for key in ("neteaseId", "neteaseAlbumId", "subtitleId"):
         if key in candidate and (not isinstance(candidate[key], str) or not re.fullmatch(r"[0-9]{1,20}", candidate[key])):
             abort(400, "匹配结果无效。")
-    if "skipLyrics" in candidate and not isinstance(candidate["skipLyrics"], bool):
-        abort(400, "匹配结果无效。")
-    candidate = {key: candidate[key] for key in ("title", "artist", "album", "releaseId", "releaseGroupId", "kind", "neteaseId", "neteaseAlbumId", "subtitleId", "language", "format", "encoding", "releaseName", "duration", "lyricsId", "skipLyrics") if key in candidate}
+    for key in ("skipLyrics", "skipCover"):
+        if key in candidate and not isinstance(candidate[key], bool):
+            abort(400, "匹配结果无效。")
+    candidate = {key: candidate[key] for key in ("title", "artist", "album", "releaseId", "releaseGroupId", "kind", "neteaseId", "neteaseAlbumId", "subtitleId", "language", "format", "encoding", "releaseName", "duration", "lyricsId", "skipLyrics", "skipCover") if key in candidate}
     return jsonify(online.details(candidate, uuid.uuid4().hex))
 
 

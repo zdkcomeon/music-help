@@ -21,7 +21,6 @@ const fields = $$("[data-field]");
 const state = {
   tracks: [],
   selected: new Set(),
-  source: "all",
   dirty: new Set(),
   coverChanged: false,
   cover: null,
@@ -31,6 +30,23 @@ const state = {
 let toastTimer;
 let matchRequestId = 0;
 let matchApplying = false;
+const libraryCollapsedKey = "music-help.library-collapsed";
+let libraryCollapsed = false;
+try {
+  libraryCollapsed =
+    window.localStorage.getItem(libraryCollapsedKey) === "1";
+} catch {}
+function setLibraryCollapsed(collapsed, persist = true) {
+  libraryCollapsed = collapsed;
+  $("#workspace").classList.toggle("library-collapsed", collapsed);
+  $("#collapse-library").setAttribute("aria-expanded", String(!collapsed));
+  $("#expand-library").setAttribute("aria-expanded", String(!collapsed));
+  if (persist) {
+    try {
+      window.localStorage.setItem(libraryCollapsedKey, collapsed ? "1" : "0");
+    } catch {}
+  }
+}
 
 function escapeHtml(value) {
   return String(value ?? "").replace(
@@ -99,6 +115,7 @@ function updateStatus() {
   const single = state.selected.size === 1 ? selectedTracks()[0] : null;
   $("#lyrics-button").disabled = state.busy || !single || !single.lyrics?.trim();
   $("#match-button").disabled = state.busy || state.selected.size !== 1;
+  $("#search-cover").disabled = state.busy || state.selected.size !== 1;
   $("#rename-button").disabled = state.busy || !state.selected.size;
   $("#remove-button").disabled = state.busy || !state.selected.size;
   fields.forEach((input) => {
@@ -109,12 +126,10 @@ function updateStatus() {
 }
 function visibleTracks() {
   const query = $("#filter").value.trim().toLocaleLowerCase();
-  return state.tracks.filter(
-    (track) =>
-      (state.source === "all" || track.source === state.source) &&
-      [track.title, track.artist, track.album, track.name].some((value) =>
-        value.toLocaleLowerCase().includes(query),
-      ),
+  return state.tracks.filter((track) =>
+    [track.title, track.artist, track.album, track.name].some((value) =>
+      value.toLocaleLowerCase().includes(query),
+    ),
   );
 }
 function coverUrl(track) {
@@ -122,13 +137,10 @@ function coverUrl(track) {
 }
 function renderTable() {
   const tracks = visibleTracks();
-  $("#count-all").textContent = state.tracks.length;
-  $("#count-library").textContent = state.tracks.filter(
-    (track) => track.source === "library",
-  ).length;
-  $("#count-upload").textContent = state.tracks.filter(
-    (track) => track.source === "upload",
-  ).length;
+  const empty = state.tracks.length === 0;
+  $("#onboarding").hidden = !empty;
+  $("#workspace").hidden = empty;
+  document.body.classList.toggle("is-empty", empty);
   $("#list-summary").textContent =
     `${tracks.length} 首歌曲${state.selected.size ? ` · 已选 ${state.selected.size} 首` : ""}`;
   $("#select-all").checked =
@@ -147,13 +159,6 @@ function renderTable() {
     })
     .join("");
   $("#empty-state").hidden = tracks.length > 0;
-  $("#empty-title").textContent = state.tracks.length
-    ? "没有找到歌曲"
-    : "从音乐开始";
-  $("#empty-description").textContent = state.tracks.length
-    ? "试试其他搜索条件，或切换文件来源。"
-    : "添加音频文件，或从已配置的服务器音乐目录中选择歌曲。";
-  $("#empty-add").hidden = state.tracks.length > 0;
   $$("#track-list tr").forEach((row) => {
     row.addEventListener("click", (event) => {
       const next = new Set(state.selected);
@@ -199,6 +204,11 @@ function renderEditor() {
   $("#editor-title").textContent = single
     ? single.title || single.baseName
     : `批量编辑 ${selected.length} 首歌曲`;
+  const meta = single
+    ? [single.artist, single.album, single.duration ? duration(single.duration) : ""].filter(Boolean)
+    : [];
+  $("#editor-meta").textContent = meta.join(" · ");
+  $("#editor-meta").hidden = !meta.length;
   $("#editor-filename").textContent = single
     ? single.relativePath || single.name
     : "填写需要统一修改的字段";
@@ -253,7 +263,6 @@ function replaceTracks(tracks) {
 async function loadLibrary(initial = false) {
   if (!initial && (!canDiscard() || state.busy)) return;
   try {
-    $("#library-status").textContent = "正在扫描音乐目录";
     const result = await api("/api/library");
     state.tracks = state.tracks.filter((track) => track.source !== "library");
     replaceTracks(result.tracks);
@@ -265,10 +274,6 @@ async function loadLibrary(initial = false) {
     state.dirty.clear();
     state.coverChanged = false;
     state.cover = null;
-    $("#library-status").textContent = result.configured
-      ? "服务器目录已连接"
-      : "未配置服务器目录";
-    $(".connection-dot").classList.toggle("ready", result.configured);
     renderTable();
     renderEditor();
     if (result.errors.length)
@@ -283,7 +288,6 @@ async function loadLibrary(initial = false) {
           : "尚未配置服务器音乐目录",
       );
   } catch (error) {
-    $("#library-status").textContent = "音乐目录读取失败";
     notify(error.message);
   }
 }
@@ -305,6 +309,7 @@ async function uploadFiles(files, folder = false) {
   state.busy = true;
   updateStatus();
   let completed = 0;
+  const uploaded = [];
   const errors = [];
   const candidates = [];
   for (const file of selected) {
@@ -324,17 +329,21 @@ async function uploadFiles(files, folder = false) {
     try {
       const result = await api("/api/files", { method: "POST", body: data });
       replaceTracks([result.track]);
+      uploaded.push(result.track);
       completed++;
     } catch (error) {
       errors.push(`${file.name}：${error.message}`);
     }
   }
   state.busy = false;
-  state.source = "all";
-  $$(".nav-item").forEach((item) =>
-    item.classList.toggle("active", item.dataset.source === "all"),
-  );
+  if (!state.selected.size && uploaded.length) {
+    state.selected = new Set([uploaded[0].id]);
+    state.dirty.clear();
+    state.coverChanged = false;
+    state.cover = null;
+  }
   renderTable();
+  renderEditor();
   updateStatus();
   if (!candidates.length && !errors.length) return notify("没有找到可识别的音频文件");
   notify(
@@ -352,24 +361,19 @@ for (const input of fields) {
     updateStatus();
   });
 }
-$("#add-files").onclick = $("#empty-add").onclick = () =>
+$("#add-files").onclick = $("#onboarding-add").onclick = () =>
   $("#file-input").click();
-$("#add-folder").onclick = () => $("#folder-input").click();
+$("#add-folder").onclick = $("#onboarding-folder").onclick = () =>
+  $("#folder-input").click();
 for (const id of ["file-input", "folder-input"])
   $(`#${id}`).addEventListener("change", (event) => {
     uploadFiles(event.target.files, id === "folder-input");
     event.target.value = "";
   });
 $("#filter").addEventListener("input", renderTable);
-$$(".nav-item").forEach((item) =>
-  item.addEventListener("click", () => {
-    state.source = item.dataset.source;
-    $$(".nav-item").forEach((other) =>
-      other.classList.toggle("active", other === item),
-    );
-    renderTable();
-  }),
-);
+setLibraryCollapsed(libraryCollapsed, false);
+$("#collapse-library").onclick = () => setLibraryCollapsed(true);
+$("#expand-library").onclick = () => setLibraryCollapsed(false);
 function selectVisible() {
   const visible = visibleTracks();
   const allSelected =
@@ -381,7 +385,6 @@ function selectVisible() {
 }
 $("#select-all").onchange = selectVisible;
 $("#select-visible").onclick = selectVisible;
-$("#refresh-library").onclick = () => loadLibrary();
 $("#refresh-selected").onclick = async () => {
   if (!state.selected.size) return loadLibrary();
   if (!canDiscard() || state.busy) return;
@@ -512,7 +515,7 @@ $("#remove-button").onclick = async () => {
   notify(errors.length ? `部分文件未移出：${errors[0]}` : "已移出列表");
 };
 
-$("#match-button").onclick = () => {
+function openMatch({ cover = true, lyrics = true } = {}) {
   const track = selectedTracks()[0];
   if (!track || state.selected.size !== 1) return;
   let title = $('[data-field="title"]').value;
@@ -527,6 +530,8 @@ $("#match-button").onclick = () => {
   }
   $("#match-title").value = title;
   $("#match-artist").value = artist;
+  $("#match-cover").checked = cover;
+  $("#match-lyrics").checked = lyrics;
   $("#match-status").textContent = "请填写名称或艺术家，然后点击搜索。";
   $("#match-results").innerHTML = "";
   const longTrack = track.duration >= LONG_AUDIO_SECONDS;
@@ -534,7 +539,9 @@ $("#match-button").onclick = () => {
   $("#match-hint").textContent =
     "这是一段较长的音频，可能包含多首歌曲或完整演出。字幕检索按影片名进行（例如 Taylor Swift The Eras Tour），结果会带上时间轴；歌曲和专辑结果仍可选用，但不会自动填入单曲歌词。";
   $("#match-dialog").showModal();
-};
+}
+$("#match-button").onclick = () => openMatch();
+$("#search-cover").onclick = () => openMatch({ lyrics: false });
 $("#match-form").onsubmit = async (event) => {
   event.preventDefault();
   const title = $("#match-title").value.trim();
@@ -609,19 +616,31 @@ $("#match-form").onsubmit = async (event) => {
   }));
 };
 async function applyCandidate(candidate, renderMatches) {
-  const selectedId = selectedTracks()[0]?.id;
+  const track = selectedTracks()[0];
+  const selectedId = track?.id;
   const subtitle = candidate.kind === "subtitle";
-  const skipLyrics = !subtitle && (selectedTracks()[0]?.duration || 0) >= LONG_AUDIO_SECONDS;
+  const wantCover = $("#match-cover").checked;
+  const wantLyrics = $("#match-lyrics").checked;
+  const longLyricsSkipped =
+    wantLyrics && !subtitle && (track?.duration || 0) >= LONG_AUDIO_SECONDS;
+  const skipLyrics = !wantLyrics || longLyricsSkipped;
+  const skipCover = !wantCover;
   const requestId = matchRequestId;
   matchApplying = true;
-  $("#match-status").textContent = subtitle ? "正在下载字幕并转换为歌词…" : "正在获取封面和歌词…";
+  const requested = [wantCover && "封面", wantLyrics && "歌词"].filter(Boolean);
+  $("#match-status").textContent =
+    subtitle && wantLyrics
+      ? "正在下载字幕并转换为歌词…"
+      : requested.length
+        ? `正在获取${requested.join("和")}…`
+        : "正在应用匹配结果…";
   $$("#match-results button").forEach((button) => {
     button.disabled = true;
   });
   try {
     const result = await api(
       "/api/online/details",
-      jsonRequest("POST", { ...candidate, skipLyrics }),
+      jsonRequest("POST", { ...candidate, skipLyrics, skipCover }),
     );
     if (
       !$("#match-dialog").open ||
@@ -647,13 +666,13 @@ async function applyCandidate(candidate, renderMatches) {
     updateStatus();
     $("#match-dialog").close();
     const missing = [
-      !subtitle && !result.cover && "封面",
-      !skipLyrics && candidate.kind !== "release" && !result.lyrics && "歌词",
+      wantCover && !subtitle && !result.cover && "封面",
+      wantLyrics && !longLyricsSkipped && candidate.kind !== "release" && !result.lyrics && "歌词",
     ].filter(Boolean);
     notify(
-      subtitle
+      subtitle && wantLyrics
         ? `已用字幕填入歌词，时间轴来自影片字幕，请检查后再保存${missing.length ? `。未获取到${missing.join("和")}` : ""}${result.warnings.length ? `。${result.warnings.join("、")}` : ""}`
-        : `已填入匹配结果，请检查后保存${missing.length ? `。未获取到${missing.join("和")}` : ""}${skipLyrics ? "。长音频未自动填入单曲歌词" : ""}${result.warnings.length ? `。${result.warnings.join("、")}` : ""}`,
+        : `已填入匹配结果，请检查后保存${missing.length ? `。未获取到${missing.join("和")}` : ""}${longLyricsSkipped ? "。长音频未自动填入单曲歌词" : ""}${result.warnings.length ? `。${result.warnings.join("、")}` : ""}`,
       7000,
     );
   } catch (error) {
@@ -743,6 +762,7 @@ window.addEventListener("beforeunload", (event) => {
 document.addEventListener("keydown", (event) => {
   if (
     event.key === "/" &&
+    !$("#workspace").hidden &&
     !event.target.matches("input, textarea") &&
     !document.querySelector("dialog[open]")
   ) {

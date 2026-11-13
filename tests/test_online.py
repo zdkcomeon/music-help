@@ -69,6 +69,21 @@ class OnlineSearchTest(unittest.TestCase):
             lyrics = online.get_lyrics({"kind": "subtitle", "subtitleId": "1", "encoding": "gbk"}, "test")
         self.assertEqual(lyrics, "[00:01.00] 你好")
 
+    def test_details_only_fetches_selected_parts(self):
+        with patch.object(online, "get_lyrics", return_value="lyrics") as lyrics, patch.object(online, "get_cover", return_value={"data": "x", "mime": "image/jpeg"}) as cover:
+            result = online.details({"title": "Song", "skipCover": True}, "test")
+        self.assertEqual((result["lyrics"], result["cover"], result["warnings"]), ("lyrics", None, []))
+        cover.assert_not_called()
+        with patch.object(online, "get_lyrics", return_value=None) as lyrics, patch.object(online, "get_cover", return_value={"data": "x", "mime": "image/jpeg"}) as cover:
+            result = online.details({"title": "Song", "skipLyrics": True}, "test")
+        self.assertEqual((result["lyrics"], result["cover"]), (None, {"data": "x", "mime": "image/jpeg"}))
+        lyrics.assert_not_called()
+        with patch.object(online, "get_lyrics") as lyrics, patch.object(online, "get_cover") as cover:
+            result = online.details({"title": "Song", "skipLyrics": True, "skipCover": True}, "test")
+        self.assertEqual((result["lyrics"], result["cover"], result["warnings"]), (None, None, []))
+        lyrics.assert_not_called()
+        cover.assert_not_called()
+
     def test_release_and_long_audio_do_not_fetch_single_song_lyrics(self):
         with patch.object(online, "fetch") as fetch:
             self.assertIsNone(online.get_lyrics({"kind": "release", "neteaseAlbumId": "123"}, "test"))
@@ -134,6 +149,7 @@ class OnlineSearchTest(unittest.TestCase):
         headers = {"X-Music-Help-Token": application.csrf_token}
         self.assertEqual(client.post("/api/online/details", json={"neteaseId": "https://example.com"}, headers=headers).status_code, 400)
         self.assertEqual(client.post("/api/online/details", json={"subtitleId": "../1"}, headers=headers).status_code, 400)
+        self.assertEqual(client.post("/api/online/details", json={"skipCover": "yes"}, headers=headers).status_code, 400)
 
 
 if __name__ == "__main__":
