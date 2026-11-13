@@ -8,6 +8,7 @@ import time
 import uuid
 import zipfile
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_file
@@ -65,9 +66,9 @@ def tagged_upload_name(entry, data):
     return safe_name(f"{base}{suffix}")
 
 
-def download_name_for(file_id, entry):
+def download_name_for(file_id, entry, data=None):
     if entry.source == "upload" and not entry.renamed:
-        return tagged_upload_name(entry, track_data(file_id, entry))
+        return tagged_upload_name(entry, data or track_data(file_id, entry))
     return entry.name
 
 
@@ -293,7 +294,6 @@ def cover(file_id):
     image = audio_cover(load_audio(entry.path))
     if not image:
         abort(404, "文件没有封面。")
-    from io import BytesIO
     return send_file(BytesIO(image[1]), mimetype=image[0], max_age=0)
 
 
@@ -302,6 +302,18 @@ def audio(file_id):
     entry = valid_entry(file_id)
     data = track_data(file_id, entry)
     return send_file(entry.path, mimetype=data["mimeType"], conditional=True)
+
+
+@app.get("/api/files/<file_id>/lyrics")
+def lyrics_file(file_id):
+    with lock:
+        entry = valid_entry(file_id)
+        data = track_data(file_id, entry)
+        if not data["lyrics"]:
+            abort(404, "这首歌还没有歌词。")
+        name = f"{Path(download_name_for(file_id, entry, data)).stem}.lrc"
+    logger.info("lyrics.exported file_id=%s name=%s characters=%s", file_id, name, len(data["lyrics"]))
+    return send_file(BytesIO(data["lyrics"].encode("utf-8")), mimetype="text/plain", as_attachment=True, download_name=name)
 
 
 @app.get("/api/download")

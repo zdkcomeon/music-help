@@ -96,6 +96,8 @@ function updateStatus() {
       ? "有未保存的修改"
       : "修改后保存到文件";
   $("#download-button").disabled = state.busy || !state.selected.size;
+  const single = state.selected.size === 1 ? selectedTracks()[0] : null;
+  $("#lyrics-button").disabled = state.busy || !single || !single.lyrics?.trim();
   $("#match-button").disabled = state.busy || state.selected.size !== 1;
   $("#rename-button").disabled = state.busy || !state.selected.size;
   $("#remove-button").disabled = state.busy || !state.selected.size;
@@ -469,6 +471,13 @@ $("#save-button").onclick = async () => {
     state.busy = false;
     updateStatus();
   }
+};
+$("#lyrics-button").onclick = () => {
+  const track = selectedTracks()[0];
+  if (!track || state.selected.size !== 1) return;
+  if (dirty()) return notify("请先保存修改，再导出歌词");
+  if (!track.lyrics || !track.lyrics.trim()) return notify("这首歌还没有歌词");
+  window.location.href = `/api/files/${encodeURIComponent(track.id)}/lyrics`;
 };
 $("#download-button").onclick = () => {
   if (dirty()) return notify("请先保存修改，再下载文件");

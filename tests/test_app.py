@@ -154,6 +154,26 @@ class MusicHelpTest(unittest.TestCase):
         ).get_json()
         self.assertEqual(result["tracks"][0]["name"], "fake - 自定义.wav")
 
+    def test_lyrics_export_matches_download_name(self):
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as output:
+            output.setparams((1, 2, 44100, 0, "NONE", "not compressed"))
+            output.writeframes(bytes(8820))
+        buffer.seek(0)
+        uploaded = self.client.post("/api/files", data={"file": (buffer, "fake.mp3")}, headers=self.headers).get_json()["track"]
+        self.assertEqual(self.client.get(f"/api/files/{uploaded['id']}/lyrics").status_code, 404)
+        lyrics = "[00:16.00] It's been a long time\n[00:26.33] It's been a long time coming"
+        self.client.post(
+            "/api/tags",
+            json={"files": [{"id": uploaded["id"], "version": uploaded["version"]}], "changes": {"title": "新歌名", "artist": "艺术家", "lyrics": lyrics}},
+            headers=self.headers,
+        )
+        response = self.client.get(f"/api/files/{uploaded['id']}/lyrics")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("艺术家 - 新歌名.lrc", unquote(response.headers["Content-Disposition"]))
+        self.assertEqual(response.data.decode("utf-8"), lyrics)
+        response.close()
+
     def test_online_response_with_missing_optional_fields(self):
         with patch.object(online, "fetch", return_value={"recordings": [{"title": "Song", "length": None, "releases": [{"date": None}]}]}):
             candidate = online.musicbrainz_search("Song", "", "test")[0]
